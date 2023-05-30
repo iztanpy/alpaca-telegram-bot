@@ -52,8 +52,8 @@ SASSY = [
     }
 ]
 
-os.environ['OPENAI_API_KEY'] = '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'
-os.environ['TELEGRAM_KEY'] = '6187419553:AAFTJ9RMsQ4rQ1q8vwl2QD8SF1scGyVJFkM'
+os.environ['OPENAI_API_KEY'] = key
+os.environ['TELEGRAM_KEY'] = key
 
 bot = AsyncTeleBot(os.environ['TELEGRAM_KEY'])
 
