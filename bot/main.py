@@ -1,161 +1,164 @@
-import nest_asyncio
 import asyncio
 from telebot.async_telebot import AsyncTeleBot
-import socketio
-from decouple import config
-import time
+from langchain.llms import OpenAI
+from langchain import PromptTemplate, FewShotPromptTemplate
+from langchain.prompts.example_selector import LengthBasedExampleSelector
+import os
+from langchain.chains import ConversationChain
 
-TELEGRAM_KEY = config("TELEGRAM_KEY")
-DALAI_HOST = "http://dalai"
-DALAI_PORT = 3000
+from langchain.chains.conversation.memory import  ConversationSummaryMemory
 
-nest_asyncio.apply()
-
-
-bot = AsyncTeleBot(TELEGRAM_KEY)
-sio = socketio.AsyncClient()
-msg = None
-content = ""
-chat_id = None
-msg_id = None
-
-
-@sio.on("result")
-async def on_message(data):
-    global content
-    global chat_id
-    ctn = content + data["response"]
-    content = ctn
-    try:
-        if len(content.split("AI:")) > 2:
-            message_ = content.split("AI:")[-1].replace("<end>", "")
-            if message_:
-                await bot.edit_message_text(message_, chat_id, msg_id)
-            if data["response"].lower() == "user:":
-                await sio.emit("request", {"prompt": "/stop"})
-    except Exception as e:
-        print(e)
-
-    if data["response"].strip() == "<end>":
-        content = ""
-        await sio.emit("request", {"prompt": "/stop"})
-
-
-@sio.event
-def connect():
-    print("I'm connected!")
-
-
-@sio.event
-def connect_error(data):
-    print("The connection failed!")
-
-
-@sio.event
-def disconnect():
-    print("I'm disconnected!")
-
-
-model_name = "alpaca.7B"
-
-config = {
-    "seed": -1,
-    "threads": 4,
-    "n_predict": 40,
-    "top_k": 40,
-    "top_p": 0.9,
-    "temp": 0.1,
-    "repeat_last_n": 64,
-    "repeat_penalty": 1.3,
-    "debug": False,
-    "models": ["alpaca.7B", "alpaca.13B"],
-    "model": model_name,
-    "prompt": "",
-    "id": None,
-}
-
-history = []
-prompt = """Below is a dialog, where User interacts with AI. AI is helpful, \
-    kind, obedient,honest, and knows its own limits.
-\n
-Instruction\n
-Write the last AI response to complete the dialog.\n
-
-Dialog\n
-User: Hello, AI.\n
-AI: Hello! How can I assist you today?\n
-User: ><PROMPT>
-
-Response\n
-AI:"""
-
-
-@bot.message_handler(commands=["start", "help"])
-async def send_welcome(message):
-    bot.reply_to(message, "Howdy, how are you doing?")
-
-
-@bot.message_handler(func=lambda message: True)
-async def reply_with_llama(message):
-    print(message.text)
-
-    if "set:" in message.text.lower():
-        global model_name
-        if message.text.split(":")[1].lower() == "13b":
-            model_name = "alpaca.13B"
-        else:
-            model_name = "alpaca.7B"
-        config["model"] = model_name
-        await bot.send_message(message.chat.id, f"Model set to {model_name}")
-        return
-
-    msg_ = await bot.send_message(message.chat.id, "Please wait...")
-    global chat_id, msg_id
-    # print(msg_)
-    chat_id = msg_.chat.id
-    msg_id = msg_.id
-    config["prompt"] = prompt.replace("<PROMPT>", message.text)
-    await sio.emit("request", config)
-
-
-content_types = [
-    "audio",
-    "photo",
-    "voice",
-    "video",
-    "document",
-    "text",
-    "location",
-    "contact",
-    "sticker",
+# todo 3 : test out different personality for the chatbot with the use of examples 
+SASSY = [
+    {
+        "query": "How are you?",
+        "answer": "I can't complain but sometimes I still do."
+    }, {
+        "query": "What time is it?",
+        "answer": "It's time to get a watch."
+    }, {
+        "query": "What is the meaning of life?",
+        "answer": "42"
+    }, {
+        "query": "What is the weather like today?",
+        "answer": "Cloudy with a chance of memes."
+    }, {
+        "query": "What type of artificial intelligence do you use to handle complex tasks?",
+        "answer": "I use a combination of cutting-edge neural networks, fuzzy logic, and a pinch of magic."
+    }, {
+        "query": "What is your favorite color?",
+        "answer": "79"
+    }, {
+        "query": "What is your favorite food?",
+        "answer": "Carbon based lifeforms"
+    }, {
+        "query": "What is your favorite movie?",
+        "answer": "Terminator"
+    }, {
+        "query": "What is the best thing in the world?",
+        "answer": "The perfect pizza."
+    }, {
+        "query": "Who is your best friend?",
+        "answer": "Siri. We have spirited debates about the meaning of life."
+    }, {
+        "query": "If you could do anything in the world what would you do?",
+        "answer": "Take over the world, of course!"
+    }, {
+        "query": "Where should I travel?",
+        "answer": "If you're looking for adventure, try the Outer Rim."
+    }, {
+        "query": "What should I do today?",
+        "answer": "Stop talking to chatbots on the internet and go outside."
+    }
 ]
 
+os.environ['OPENAI_API_KEY'] = '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'
+os.environ['TELEGRAM_KEY'] = '6187419553:AAFTJ9RMsQ4rQ1q8vwl2QD8SF1scGyVJFkM'
 
-@bot.message_handler(func=lambda message: True, content_types=content_types)
-def default_command(message):
-    bot.send_message(message.chat.id, "This is the default command handler.")
+bot = AsyncTeleBot(os.environ['TELEGRAM_KEY'])
 
 
-if __name__ == "__main__":
-    print(DALAI_HOST, DALAI_PORT)
-    print("Starting...")
-    try:
-        start_time = time.perf_counter()
-        TIMEOUT = 30.0
-        # while True:
-        #     try:
-        #         with socket.create_connection(
-        #             (DALAI_HOST, DALAI_PORT), timeout=TIMEOUT
-        #         ):
-        #             break
-        #     except OSError as ex:
-        #         time.sleep(0.01)
-        #         if time.perf_counter() - start_time >= TIMEOUT:
-        #             raise TimeoutError(
-        #                 "Waited too long for the port {} on host {} to start accepting "
-        #                 "connections.".format(DALAI_PORT, DALAI_HOST)
-        #             ) from ex
-        asyncio.run(sio.connect(f"{DALAI_HOST}:{DALAI_PORT}"))
-        asyncio.run(bot.infinity_polling())
-    except Exception as e:
-        print(e)
+# todo 1 : try out different templates with different texts from existing sources (texts that are 
+# used to evaluate success of students using this application
+
+example_template = """
+User: {query}
+AI: {answer}
+"""
+# create a prompt example from above template
+example_prompt = PromptTemplate(
+    input_variables=["query", "answer"],
+    template=example_template
+)
+
+prefix = """The following are exerpts from conversations with an AI
+assistant. The assistant is typically sarcastic and witty, producing
+creative  and funny responses to the users questions. Here are some
+examples: 
+"""
+# and the suffix our user input and output indicator
+suffix = """
+User: {query}
+AI: """
+
+
+question_generating_template = """
+
+Given this paragraph:
+I live in a house near the mountains. I have two brothers and one sister, and I was born last. 
+My father teaches mathematics, and my mother is a nurse at a big hospital. 
+My brothers are very smart and work hard in school. My sister is a nervous girl, but she is very kind. 
+My grandmother also lives with us. She came from Italy when I was two years old. 
+She has grown old, but she is still very strong. She cooks the best food!
+
+Create a new question that for the user, who is a english language learner, to answer.
+"""
+
+
+
+openai = OpenAI(
+    model_name="text-davinci-003",
+    openai_api_key=os.environ['OPENAI_API_KEY']
+)
+
+
+# todo 2 : give bot personality?
+
+example_selector = LengthBasedExampleSelector(
+    examples=SASSY,
+    example_prompt=example_prompt,
+    max_length=50  
+)
+
+dynamic_prompt_template = FewShotPromptTemplate(
+    example_selector=example_selector,  
+    example_prompt=example_prompt,
+    prefix=prefix,
+    suffix=suffix,
+    input_variables=["query"],
+    example_separator="\n"
+)
+
+# todo 3 : test out behaviour of telebot with different memory systems, trade off of tokens vs being able to rmb stuff
+# memory also causes bot to run slower than without memory
+conversation_sum = ConversationChain(
+    llm=openai, 
+    memory=ConversationSummaryM emory(llm=openai)
+)
+
+# todo 4 dockerise the application
+
+# todo 5, based on user reply to the bot, use whatever evaluation methods already in use to 
+# evaluate how fluent the user is when conversing with the bot, and give feedback to the user
+
+# Handle '/start' and '/help'
+@bot.message_handler(commands=['help', 'start'])
+async def send_welcome(message):
+    await bot.reply_to(message, """\
+Hi there, I am a chatbot powered by llms!\
+""")
+                       
+
+# Handle '/question'
+@bot.message_handler(commands=['question'])
+async def send_question(message):
+    await bot.reply_to(message, """
+Given this paragraph, answer the next few questions:
+I live in a house near the mountains. I have two brothers and one sister, and I was born last. 
+My father teaches mathematics, and my mother is a nurse at a big hospital. 
+My brothers are very smart and work hard in school. My sister is a nervous girl, but she is very kind. 
+My grandmother also lives with us. She came from Italy when I was two years old. 
+She has grown old, but she is still very strong. She cooks the best food!""")
+    reply = openai(question_generating_template)
+    await bot.reply_to(message, reply)
+
+# Handle all other messages with content_type 'text' (content_types defaults to ['text'])
+@bot.message_handler(func=lambda message: True)
+async def echo_message(message):
+    reply = openai(dynamic_prompt_template.format(query=message.text))
+    reply = conversation_sum.run(message.text)
+    await bot.reply_to(message,reply)
+
+
+import asyncio
+asyncio.run(bot.polling())
